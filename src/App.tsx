@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Languages, 
   ArrowRight, 
@@ -145,6 +145,106 @@ export default function App() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollRafRef = useRef(0);
 
+  const syncScrollState = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const maxScroll = container.scrollHeight - container.clientHeight;
+    if (maxScroll <= 0) return;
+
+    const progress = container.scrollTop / maxScroll;
+    setScrollPercent(progress);
+
+    const floatScene = progress * (SCENES.length - 1);
+    const sceneIndex = Math.min(Math.round(floatScene), SCENES.length - 1);
+
+    setCurrentSceneIndex((prev) => {
+      if (sceneIndex === prev) return prev;
+      if (!isMuted) {
+        try {
+          const osc = new AudioContext();
+          const node = osc.createOscillator();
+          const gain = osc.createGain();
+          node.type = 'sine';
+          node.frequency.setValueAtTime(320 + sceneIndex * 80, osc.currentTime);
+          gain.gain.setValueAtTime(0.012, osc.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, osc.currentTime + 0.12);
+          node.connect(gain);
+          gain.connect(osc.destination);
+          node.start();
+          node.stop(osc.currentTime + 0.14);
+        } catch (_) {}
+      }
+      return sceneIndex;
+    });
+  }, [isMuted]);
+
+  const scheduleScrollSync = useCallback(() => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      syncScrollState();
+    });
+  }, [syncScrollState]);
+
+  // Proxy wheel/touch to scroll container (HUD panels sit above z-10 scroll layer)
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const shouldIgnoreScrollProxy = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest('input, textarea, select'));
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (shouldIgnoreScrollProxy(e.target)) return;
+      container.scrollTop += e.deltaY;
+      scheduleScrollSync();
+      e.preventDefault();
+    };
+
+    let touchStartY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      if (shouldIgnoreScrollProxy(e.target)) return;
+      touchStartY = e.touches[0].clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (shouldIgnoreScrollProxy(e.target)) return;
+      const deltaY = touchStartY - e.touches[0].clientY;
+      touchStartY = e.touches[0].clientY;
+      container.scrollTop += deltaY;
+      scheduleScrollSync();
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreScrollProxy(e.target)) return;
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        container.scrollTop += window.innerHeight * 0.85;
+        scheduleScrollSync();
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        container.scrollTop -= window.innerHeight * 0.85;
+        scheduleScrollSync();
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('keydown', onKeyDown);
+    scheduleScrollSync();
+
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('keydown', onKeyDown);
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, [scheduleScrollSync]);
+
   // Time metrics logic
   useEffect(() => {
     const start = Date.now();
@@ -177,41 +277,9 @@ export default function App() {
     };
   }, []);
 
-  // Update scroll status & active scene indices when scroll event occurs
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (scrollRafRef.current) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = 0;
-      const t = e.currentTarget;
-      const maxScroll = t.scrollHeight - t.clientHeight;
-      if (maxScroll <= 0) return;
-
-      const progress = t.scrollTop / maxScroll;
-      setScrollPercent(progress);
-
-      const floatScene = progress * (SCENES.length - 1);
-      const sceneIndex = Math.min(Math.round(floatScene), SCENES.length - 1);
-
-      setCurrentSceneIndex((prev) => {
-        if (sceneIndex === prev) return prev;
-        if (!isMuted) {
-          try {
-            const osc = new AudioContext();
-            const node = osc.createOscillator();
-            const gain = osc.createGain();
-            node.type = 'sine';
-            node.frequency.setValueAtTime(320 + sceneIndex * 80, osc.currentTime);
-            gain.gain.setValueAtTime(0.012, osc.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.0001, osc.currentTime + 0.12);
-            node.connect(gain);
-            gain.connect(osc.destination);
-            node.start();
-            node.stop(osc.currentTime + 0.14);
-          } catch (_) {}
-        }
-        return sceneIndex;
-      });
-    });
+  // Update scroll status when the scroll container moves
+  const handleScroll = () => {
+    scheduleScrollSync();
   };
 
   // Jump smoothly to a specific scene by clicking on indicators/sidebar nodes
@@ -227,6 +295,7 @@ export default function App() {
       top: targetScrollTop,
       behavior: 'smooth'
     });
+    scheduleScrollSync();
   };
 
   // Action callback when user triggers "ROUTE DESIGN" in Sandbox Translator
@@ -334,7 +403,7 @@ export default function App() {
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="absolute inset-0 w-full h-full overflow-y-scroll z-10 snap-y snap-mandatory scroll-smooth pointer-events-auto"
+        className="absolute inset-0 w-full h-full overflow-y-scroll z-10 snap-y snap-mandatory scroll-smooth pointer-events-none"
         id="narrative-vscroll-engine"
       >
         {/* Generate spacious layout anchors that trigger canvas camera steps */}
