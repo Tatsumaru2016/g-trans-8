@@ -222,9 +222,9 @@ export const NetworkUniverse: React.FC<NetworkUniverseProps> = ({ scrollProgress
     scene.add(gridHelper);
 
     // --- HIGH-PERFORMANCE INSTANCED HUMAN NODES (SCENE 1-2) ---
-    // We instantiate thousands of small nodes representing users on the Globe
+    // Colored rectangular tiles on the globe surface
     const nodeCount = 1500;
-    const nodeGeometry = new THREE.SphereGeometry(0.04, 8, 8);
+    const nodeGeometry = new THREE.BoxGeometry(0.055, 0.055, 0.018);
     const nodeMaterial = new THREE.MeshPhongMaterial({
       color: '#60a5fa',
       emissive: '#1d4ed8',
@@ -259,6 +259,7 @@ export const NetworkUniverse: React.FC<NetworkUniverseProps> = ({ scrollProgress
       nodeOrigins.push(pos);
 
       dummy.position.copy(pos);
+      dummy.lookAt(pos.x * 2, pos.y * 2, pos.z * 2);
       dummy.scale.setScalar(0.4 + Math.random() * 1.8);
       dummy.updateMatrix();
       instancedMesh.setMatrixAt(i, dummy.matrix);
@@ -323,13 +324,13 @@ export const NetworkUniverse: React.FC<NetworkUniverseProps> = ({ scrollProgress
       });
     }
 
-    // --- LANGUAGE TARGET NODES (SPHERE HUD GLOW & LABELS) ---
+    // --- LANGUAGE TARGET NODES (RECT MARKERS, GLOW & LABELS) ---
     const originalLanguageSprites: THREE.Sprite[] = [];
     const languageGlows: THREE.Mesh[] = [];
+    const markerGeom = new THREE.BoxGeometry(0.16, 0.16, 0.04);
 
     LANGUAGES.forEach(lang => {
-      // 3D Sphere Marker at exact Coordinates
-      const markerGeom = new THREE.SphereGeometry(0.12, 16, 16);
+      const coord = new THREE.Vector3(...lang.coords);
       const markerMat = new THREE.MeshPhongMaterial({
         color: lang.color,
         emissive: lang.color,
@@ -337,7 +338,8 @@ export const NetworkUniverse: React.FC<NetworkUniverseProps> = ({ scrollProgress
         shininess: 100,
       });
       const markerMesh = new THREE.Mesh(markerGeom, markerMat);
-      markerMesh.position.set(...lang.coords);
+      markerMesh.position.copy(coord);
+      markerMesh.lookAt(coord.x * 2, coord.y * 2, coord.z * 2);
       globeGroup.add(markerMesh);
 
       // Smooth custom Canvas Sprite Glow behind target coordinates
@@ -893,6 +895,7 @@ export const NetworkUniverse: React.FC<NetworkUniverseProps> = ({ scrollProgress
       dustMaterial.dispose();
       nodeGeometry.dispose();
       nodeMaterial.dispose();
+      markerGeom.dispose();
       gridHelper.dispose();
       originalLanguageSprites.forEach(sprite => sprite.material.dispose());
       languageGlows.forEach(glow => (glow.material as THREE.Material).dispose());
