@@ -1,0 +1,6 @@
+{
+  "name": "G.trans",
+  "description": "An immersive 3D translation universe connecting humans, nations, and planets through space.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
